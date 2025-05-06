@@ -1,0 +1,144 @@
+---
+- name: Установить Docker, собрать образ и проверить скрипт
+  hosts: targets
+  become: true
+  gather_facts: true
+
+  vars:
+    image_name: httpstat-script:latest
+    container_name: httpstat_test
+    project_src: "{{ playbook_dir }}/.."    # корень вашего проекта
+
+  pre_tasks:
+    # 1) Убедиться, что APT‑каталоги есть
+    - name: Ensure APT lists directories exist
+      file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+      loop:
+        - /var/lib/apt/lists
+        - /var/lib/apt/lists/partial
+
+    # 2) Если система ищет /usr/libexec/apt/methods — сделать symlink
+    - name: Create /usr/libexec/apt/methods and symlink apt methods
+      block:
+        - file:
+            path: /usr/libexec/apt/methods
+            state: directory
+            mode: '0755'
+        - shell: |
+            for m in /usr/lib/apt/methods/*; do
+              ln -sf "$m" /usr/libexec/apt/methods/$(basename "$m")
+            done
+          args:
+            creates: /usr/libexec/apt/methods/https
+      when: ansible_os_family == 'Debian'
+
+    # 3) Подключить официальный репозиторий Ubuntu по HTTPS
+    - name: Add Ubuntu HTTPS APT repository
+      ansible.builtin.apt_repository:
+        repo: "deb https://archive.ubuntu.com/ubuntu {{ ansible_distribution_release }} main restricted universe multiverse"
+        state: present
+
+    # 4) Обновить кеш APT
+    - name: Update APT cache
+      ansible.builtin.apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+  tasks:
+    # 5) Установить базовые пакеты, включая python3-apt для корректной работы apt-модуля
+    - name: Install base APT dependencies
+      ansible.builtin.apt:
+        name:
+          - ca-certificates
+          - curl
+          - gnupg
+          - lsb-release
+          - python3-apt
+        state: present
+        update_cache: no
+
+    # 6) Установить Docker CE
+    - name: Add Docker GPG key
+      ansible.builtin.apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+
+    - name: Add Docker APT repository
+      ansible.builtin.apt_repository:
+        repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+        state: present
+
+    - name: Update APT cache after adding Docker repo
+      ansible.builtin.apt:
+        update_cache: yes
+
+    - name: Install Docker packages
+      ansible.builtin.apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+        state: present
+
+    - name: Ensure Docker service is running and enabled
+      ansible.builtin.service:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Add current user to docker group
+      ansible.builtin.user:
+        name: "{{ ansible_user_id }}"
+        groups: docker
+        append: yes
+
+    - name: Check Docker version
+      ansible.builtin.command: docker --version
+      register: docker_version
+
+    - name: Show Docker version
+      ansible.builtin.debug:
+        var: docker_version.stdout
+
+    # 7) Скопировать проект, собрать образ и запустить контейнер
+    - name: Copy project sources to target
+      ansible.builtin.copy:
+        src: "{{ project_src }}/"
+        dest: /opt/httpstat
+        owner: "{{ ansible_user_id }}"
+        group: "{{ ansible_user_id }}"
+
+    - name: Build Docker image
+      community.docker.docker_image:
+        build:
+          path: /opt/httpstat
+        name: "{{ image_name }}"
+
+    - name: Run container (foreground)
+      community.docker.docker_container:
+        name: "{{ container_name }}"
+        image: "{{ image_name }}"
+        state: started
+        detach: false
+      register: run_result
+      # allow simultaneous stdout/stderr capture
+      async: 300
+      poll: 300
+
+    - name: Assert container exited with code 0
+      ansible.builtin.assert:
+        that:
+          - run_result.rc == 0
+
+    - name: Get container logs
+      community.docker.docker_container_info:
+        name: "{{ container_name }}"
+      register: info
+
+
+    - name: Show container logs
+      ansible.builtin.debug:
+        msg: "{{ info.logs }}"
