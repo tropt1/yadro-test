@@ -17,11 +17,13 @@
 ```
 .
 ├── section1
-├── section2      # Скрипт для HTTP‑запросов 📝
-├──                   # Сборка образа на Ubuntu 22.04 🐳
-└── section3
-    ├── inventory.ini           # Инвентори для Ansible (localhost) 📋
-    └── playbook.yml            # Playbook для установки Docker и проверки скрипта 🎯
+│   └── http_checker.py         # Скрипт для HTTP‑запросов 📝
+├── section2
+│   └── Dockerfile              # Сборка образа на Ubuntu 22.04 🐳
+├── section3
+│   ├── inventory.ini           # Инвентори для Ansible (localhost) 📋
+│   └── playbook.yml            # Playbook для установки Docker и проверки скрипта 🎯
+└── README.md                   # README файл 📋
 ```
 
 ---
@@ -45,19 +47,19 @@
    ```
 2. Сделайте скрипт исполняемым и запустите:
    ```bash
-   chmod +x http_checker.py
-   ./http_checker.py
+   chmod +x section1/http_checker.py
+   python3 section1/http_checker.py
    ```
 
 ### Part 2. Docker 🐳
 
 1. Собрать образ:
    ```bash
-   docker build -t httpstat-script:latest .
+   docker build -t http_checker:latest -f section2/Dockerfile .
    ```
 2. Запустить контейнер и просмотреть логи:
    ```bash
-   docker run --rm --name httpstat httpstat-script:latest
+   docker run --rm  http_checker:latest
    docker logs httpstat
    ```
 
@@ -69,24 +71,10 @@
    ```
 2. Перейдите в каталог `ansible` и запустите playbook:
    ```bash
-   cd ansible
+   cd section3
    ansible-playbook -i inventory.ini playbook.yml
    ```
 3. В выводе вы увидите:
    - результат установки Docker ✔️  
    - сборку и запуск контейнера ✔️  
-   - логи выполнения скрипта 📜  
-
----
-
-## Коммиты 🏷️
-
-- **Part 1**: добавлен `part1_http_requests.py` с логированием и исключениями  
-- **Part 2**: добавлен `Dockerfile` на базе Ubuntu 22.04  
-- **Part 3**: добавлен Ansible‑playbook для автоматизации установки Docker и проверки скрипта  
-
----
-
-## Контакты 📫
-
-По вопросам реализации — открывайте issue или пишите в комментариях к коммитам. 😊  
+   - логи выполнения скрипта 📜    
